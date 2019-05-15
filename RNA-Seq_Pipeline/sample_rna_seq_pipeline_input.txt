@@ -23,7 +23,6 @@ Paired-end=--fr
 #See the README file for more information on naming your sample files
 normalization_groups=DHA,vehicle
 #Choose your normalization method
-normalization_groups=vehicle,DHA
 normalization_method=classic-fpkm
 #Indicate any optional hisat2 arguments with hisat2_argument
 hisat2_--rna-strandness=FR
