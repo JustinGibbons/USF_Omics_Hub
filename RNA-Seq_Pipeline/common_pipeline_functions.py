@@ -145,9 +145,14 @@ def find_matching_reads(fastqs):
 				reads[os.path.basename(prefix.strip("_"))] = (fastq,match)
 	return reads
 
-
+def find_unmatched_reads(fastqs):
+	"""Iterates through a list of file names and returns a dictionary where the keys are the basenames and the values are the file paths"""
+	reads={}
+	for fastq in fastqs:
+		reads[os.path.basename(fastq).split(".")[0]]=fastq
+	return reads
 	
-def construct_hisat_array_command(index_files_path_and_basename,read_dict,input_dict,alignment_dir,number_of_processors=3,task_id="$SLURM_ARRAY_TASK_ID"):
+def construct_hisat_array_command(index_files_path_and_basename,read_dict,input_dict,alignment_dir,number_of_processors=3,task_id="$SLURM_ARRAY_TASK_ID",data_paired_end=True):
 
 	name_of_program="hisat2"
         number_of_processors_arg="-p"+" "+str(number_of_processors)
@@ -155,20 +160,28 @@ def construct_hisat_array_command(index_files_path_and_basename,read_dict,input_
         basename_ref_genome_arg="-x"+" "+index_files_path_and_basename
         pair_one_arg="-1"
         pair_two_arg="-2"
+	unpaired_reads_arg="-U"
 	outfile_arg="-S"
 	read1_array="read1_array"
 	read2_array="read2_array"
+	unpaired_array="unpaired_array"
 	outfile_array="hisat_outfile_array"
+	if data_paired_end==False:
+		read_list=[]
+		outfile_list=[]
+		for sample in read_dict:
+			read_list.append(read_dict[sample])
+			outfile_list.append(alignment_dir+"/"+sample+".sam")
+	elif data_paired_end==True:
+		#Create the arrays for the input and the output
+		pair1_list=[]
+		pair2_list=[]
+		outfile_list=[]
 
-	#Create the arrays for the input and the output
-	pair1_list=[]
-	pair2_list=[]
-	outfile_list=[]
-
-	for pair_key in read_dict:
-		pair1_list.append(read_dict[pair_key][0])
-                pair2_list.append(read_dict[pair_key][1])
-		outfile_list.append(alignment_dir+"/"+pair_key+".sam")
+		for pair_key in read_dict:
+			pair1_list.append(read_dict[pair_key][0])
+                	pair2_list.append(read_dict[pair_key][1])
+			outfile_list.append(alignment_dir+"/"+pair_key+".sam")
 	hisat_command=["hisat2"]
 
 	for key in input_dict:
@@ -178,25 +191,34 @@ def construct_hisat_array_command(index_files_path_and_basename,read_dict,input_
                         hisat_command.append(argument)
                         hisat_command.append(value)
 	hisat_command.append(basename_ref_genome_arg)
-	#Construct the input array strings
-	read1_input_array=convert_list_to_bash_array(pair1_list,read1_array)
-	read2_input_array=convert_list_to_bash_array(pair2_list,read2_array)
+	if data_paired_end==True:
+		#Construct the input array strings
+		read1_input_array=convert_list_to_bash_array(pair1_list,read1_array)
+		read2_input_array=convert_list_to_bash_array(pair2_list,read2_array)
 
+		#Construct the hisat array string
+        	hisat_command.append(pair_one_arg)
+        	hisat_command.append(dereference_array_string(read1_array,task_id))
+
+        	hisat_command.append(pair_two_arg)
+        	hisat_command.append(dereference_array_string(read2_array,task_id))
+	elif data_paired_end==False:
+		unpaired_reads_array=convert_list_to_bash_array(read_list,unpaired_array)
+		hisat_command.append(unpaired_reads_arg)		
+		hisat_command.append(dereference_array_string(unpaired_array,task_id))
 	#Construct the output array string
 	output_array=convert_list_to_bash_array(outfile_list,outfile_array)
-	#Construct the hisat array string
-	hisat_command.append(pair_one_arg)
-	hisat_command.append(dereference_array_string(read1_array,task_id))
 
-	hisat_command.append(pair_two_arg)
-	hisat_command.append(dereference_array_string(read2_array,task_id))
 	deref_outfiles=dereference_array_string(outfile_array,task_id)
 	hisat_command.append(outfile_arg+" "+deref_outfiles)
 
 	hisat_command_str=" ".join(hisat_command)
 
 	#Combine everything
-	return_list=[read1_input_array,read2_input_array,output_array,hisat_command_str,deref_outfiles]
+	if data_paired_end==True:
+		return_list=[read1_input_array,read2_input_array,output_array,hisat_command_str,deref_outfiles]
+	elif data_paired_end==False:
+		return_list=[unpaired_reads_array,output_array,hisat_command_str,deref_outfiles]
 
 	return((return_list,outfile_list))
 				
@@ -967,7 +989,7 @@ def construct_stringtie_command(ref_gff,list_of_sample_bams,threads="3"):
 	return commands
 
 def construct_cufflinks_array_command(arguments_dic,manifest_outfile_suffix="cufflinks_output_manifest.txt",number_of_threads="3"):
-	program_name="cufflinks"
+	program_name="cufflinks -q"
         outdir_option="-o"
         number_of_threads_option="-p"
         number_of_threads=arguments_dic['threads']
@@ -987,22 +1009,27 @@ def construct_cufflinks_array_command(arguments_dic,manifest_outfile_suffix="cuf
 
         output_manifest=dict()
         manifest_outfile=working_dir+manifest_outfile_suffix
+
         for infile in alignments:
                 sample=os.path.basename(infile).split("_sorted.bam")[0]
                 outdir=sample+"_cufflinks_output"
 		output_dirs.append(outdir)
                 output_manifest[sample]=working_dir+outdir
-                for key in arguments_dic:
-                        if key.startswith("cufflinks_"):
-                                option=key.split("_")[1]
-                                value=arguments_dic[key]
-                                command.append(option)
-                                command.append(value)
-    	outdir_array=convert_list_to_bash_array(output_dirs,outdirs_array_name)
+    	
+	outdir_array=convert_list_to_bash_array(output_dirs,outdirs_array_name)
 	deref_output_array=dereference_array_string(outdirs_array_name,task_id)
+
+	for key in arguments_dic:
+                if key.startswith("cufflinks_"):
+                        option=key.split("_")[1]
+                        value=arguments_dic[key]
+                        command.append(option)
+                        command.append(value)
+
 	command.append(outdir_option)
 	command.append(deref_output_array)
-	command.append(deref_bam_file_array) 
+	command.append(deref_bam_file_array)
+	#command.append(deref_bam_file_array) 
         with open(manifest_outfile, "w") as out:
                 for key in output_manifest:
                         out.write(key+"="+output_manifest[key]+"\n")
@@ -1165,7 +1192,7 @@ def construct_cuffnorm_command(gff_file,sam_or_bam_files,sample_dir,groupings=No
 	groupings is a string of comma seperated substrings used to group the sam or bam files for normalization.
 	If the groupings variable is not supplied all samples are normalized together"""
 	
-	program_name="cuffnorm"
+	program_name="cuffnorm -q"
 	output_dir_option="-o"
 	labels_option="-L"
 	number_of_threads_option="-p"

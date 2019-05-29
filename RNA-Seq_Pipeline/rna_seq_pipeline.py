@@ -12,6 +12,7 @@ from common_pipeline_functions import dereference_array_string
 from common_pipeline_functions import construct_cufflinks_array_command
 from common_pipeline_functions import construct_feature_counts_command
 from common_pipeline_functions import construct_cuffnorm_command
+from common_pipeline_functions import find_unmatched_reads
 import os 
 
 def construct_samtools_commands(list_of_sam_files,deref_sam_array,threads=3):
@@ -25,8 +26,7 @@ def construct_samtools_commands(list_of_sam_files,deref_sam_array,threads=3):
 	bam_files=[]
 	bam_files_array_name="sorted_bam_files_array"
 	command=[samtools_program, "sort", "-@", str(threads),"-o"]
-	for sam in list_of_sam_files:
-		
+	for sam in list_of_sam_files:	
 		name_stem,file_type=sam.split(".")
 		sorted_out_bam=name_stem+"_sorted.bam"
 		bam_files.append(sorted_out_bam)
@@ -73,7 +73,18 @@ def write_out_hisat_array_slurm_file(arguments_file,outfile="hisat_array_command
 	alignment_dir="Alignments"
 	os.mkdir(workdir+"/"+alignment_dir)
 	#Dictionary pointing from sample names to reads
-	read_dict=find_matching_reads(get_fastq_files(arguments_dic["sample_dir"]))
+	if "Data_Paired_End" not in arguments_dic:
+		data_paired_end=True
+		read_dict=find_matching_reads(get_fastq_files(arguments_dic["sample_dir"]))
+	else:
+		data_paired_end=arguments_dic["Data_Paired_End"]
+		if data_paired_end=="TRUE" or data_paired_end=="true" or data_paired_end=="True" or data_paired_end=="T":
+			data_paired_end=True
+			read_dict=find_matching_reads(get_fastq_files(arguments_dic["sample_dir"]))
+		else:
+			data_paired_end=False
+			read_dict=find_unmatched_reads(get_fastq_files(arguments_dic["sample_dir"]))
+		
 	#List of slurm options to be written on their own lines
         slurm_commands=create_slurm_header(workdir=arguments_dic["main_output_dir"],
                                         time=":".join([arguments_dic["hours"],arguments_dic["minutes"],"00"]),
@@ -81,16 +92,22 @@ def write_out_hisat_array_slurm_file(arguments_file,outfile="hisat_array_command
                                         mem=arguments_dic["mem"],
                                         mail_user=arguments_dic["email_to_send_output_to"],submit_to_rra=arguments_dic["submit_to_rra"])
 
-
+	slurm_commands2=create_slurm_header(workdir=arguments_dic["main_output_dir"],
+                                        time=":".join([arguments_dic["hours"],arguments_dic["minutes"],"00"]),
+                                        ntasks=arguments_dic["threads"],
+                                        mem=arguments_dic["mem"],
+                                        mail_user=arguments_dic["email_to_send_output_to"],submit_to_rra=arguments_dic["submit_to_rra"])
 
 	hisat_command_input,sam_files=construct_hisat_array_command(index_files_path_and_basename=arguments_dic["genome_index"],
                                                         read_dict=read_dict,
                                                         number_of_processors=arguments_dic["threads"],
-                                                        input_dict=arguments_dic,alignment_dir=alignment_dir)
+                                                        input_dict=arguments_dic,alignment_dir=alignment_dir,data_paired_end=data_paired_end)
 	
 
-
-	read1_array,read2_array,hisat_output_array,hisat_command,deref_hisat_outfiles=hisat_command_input
+	if data_paired_end==True:
+		read1_array,read2_array,hisat_output_array,hisat_command,deref_hisat_outfiles=hisat_command_input
+	elif data_paired_end==False:
+		unpaired_reads_array,hisat_output_array,hisat_command,deref_hisat_outfiles=hisat_command_input
 	#print hisat_command_input
 	bam_array,samtools_sort_command,bam_files=construct_samtools_commands(sam_files,deref_hisat_outfiles,threads=arguments_dic["threads"])
 	arguments_dic["alignment_files"]=bam_files
@@ -115,12 +132,27 @@ def write_out_hisat_array_slurm_file(arguments_file,outfile="hisat_array_command
 	slurm_commands.append("module load apps/hisat2/2.1.0")
 	slurm_commands.append("module load apps/samtools/1.3.1")
 	slurm_commands.append("module load apps/cufflinks/2.2.1")
-	slurm_commands.append("module load apps/subread/1.6.3")
+
+	slurm_commands2.append("#SBATCH --output=rna-seq_pipeline2.out")
+	slurm_commands2.append("module load apps/cufflinks/2.2.1")
+	slurm_commands2.append("module load apps/subread/1.6.3")
+
+	if data_paired_end==True:
 	
-	list_of_commands=[[read1_array],["\n"],[read2_array],["\n"],[hisat_output_array],["\n"],[bam_array],["\n"],[cufflinks_outputdirs_array_string],
-["\n"],[hisat_command],["\n"],[samtools_sort_command],["\n"],[cufflinks_command],["\n"],[featurecounts_command],["\n"],[cuffnorm_command]]
-	write_command_lists_to_file(slurm_commands=slurm_commands,list_of_command_lists=list_of_commands,outfile=outfile)
-	return list_of_commands
+		list_of_commands1=[[read1_array],["\n"],[read2_array],["\n"],[hisat_output_array],["\n"],[bam_array],["\n"],[cufflinks_outputdirs_array_string],
+	["\n"],[hisat_command],["\n"],[samtools_sort_command],["\n"],[cufflinks_command]]
+		write_command_lists_to_file(slurm_commands=slurm_commands,list_of_command_lists=list_of_commands1,outfile=outfile)
+	elif data_paired_end==False:
+		list_of_commands1=[[unpaired_reads_array],["\n"],[hisat_output_array],["\n"],[bam_array],["\n"],[cufflinks_outputdirs_array_string],
+        ["\n"],[hisat_command],["\n"],[samtools_sort_command],["\n"],[cufflinks_command]]
+                write_command_lists_to_file(slurm_commands=slurm_commands,list_of_command_lists=list_of_commands1,outfile=outfile)
+
+	outfile_base,outfile_ext=outfile.split(".")
+	outfile2=outfile_base+"2"+"."+outfile_ext
+
+	list_of_commands2=[[featurecounts_command],["\n"],[cuffnorm_command]]
+	write_command_lists_to_file(slurm_commands=slurm_commands2,list_of_command_lists=list_of_commands2,outfile=outfile2)
+	return (list_of_commands1,list_of_commands2)
 
 #arguments_file="/shares/biocomputing_ii/Bitbucket/Hisat_Pipeline/Sample_Data/sample_hisat_array_input.txt"
 
@@ -128,7 +160,15 @@ def write_out_hisat_array_slurm_file(arguments_file,outfile="hisat_array_command
 if __name__=="__main__":
 	import sys
 	import subprocess
+	#import os
 	args=sys.argv
 	program,infile,outfile=args
 	write_out_hisat_array_slurm_file(infile,outfile)
-	subprocess.call(["sbatch",outfile])
+	outfile_base,outfile_ext=outfile.split(".")
+	outfile2=outfile_base+"2"+"."+outfile_ext
+	os.system("sbatch %s" %outfile + ' > command_stdout.txt')
+
+	so= open("command_stdout.txt","r")
+	stout=so.read().strip()
+	jobid=stout.split()[3]
+	os.system("sbatch --dependency=afterok:%s %s" %(jobid,outfile2))
