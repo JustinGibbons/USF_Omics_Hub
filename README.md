@@ -2,21 +2,22 @@
 <html>
 <body>
 
-<p align="center">
-  <h1>USF Omics Hub</h1>
-  <br>
- </p>
+
+<h1 align="center">Welcome to the USF Omics Hub git repository!</h1>
+
 
   
 <p align="center">
   <img src="https://github.com/JustinGibbons/USF_Omics_Hub/blob/master/Misc/github.web.src/images/OmicsHub_logo_no_email.png">
   <br>
-  <b> Code used by the USF Omics Hub for various standard analyses. </b>
+  <h3 align="center">We post the code we use here for various standard omics-related data analyses.</h3>
   <br>
  </p>
 
 <p align="center">
   <b> See our Wiki page for documentation and walkthroughs for our pipelines. More updates coming soon! </b>
+  <br>
+  <br>
   <br>
 </p>
 
