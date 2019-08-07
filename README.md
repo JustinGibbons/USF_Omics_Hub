@@ -15,7 +15,7 @@
  </p>
 
 <p align="center">
-  <b> See our <a href="https://github.com/JustinGibbons/USF_Omics_Hub/wiki">Wiki</a> page for documentation and walkthroughs for our pipelines. More updates coming soon! </b>
+  <b> See our <a href="https://github.com/JustinGibbons/USF_Omics_Hub/wiki">Wiki</a> page for documentation and walkthroughs for our pipelines, and see our <a href="https://github.com/JustinGibbons/USF_Omics_Hub/wiki/F.A.Q.">FAQ</a> for answers to common questions about the Omics Hub. More updates coming soon! </b>
   <br>
   <br>
   <br>
